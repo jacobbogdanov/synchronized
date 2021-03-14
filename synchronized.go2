@@ -21,31 +21,28 @@ type RWLocker interface {
 }
 
 // Synchronized provides a simple abstraction for mutex- based conncurrency.
-type Synchronized[T any, Lock Locker] struct {
-	mutex Lock
+type Synchronized[T any] struct {
+	mutex Locker
 	data  T
 }
 
 // NewSynchronized creates a new Synchronized and initializes it with a user-provided value and a
 // *sync.Mutex. To specify a custom Locker use NewSynchronizedWithLock.
-func NewSynchronized[T any](data T) *Synchronized[T, *sync.Mutex] {
+func NewSynchronized[T any](data T) *Synchronized[T] {
 	lock := &sync.Mutex{}
-	return NewSynchronizedWithLock[T, *sync.Mutex](data, lock)
+	return NewSynchronizedWithLock[T](data, lock)
 }
 
 // NewSynchronizedWithLock creates a new Synchronized and initializes it with a user-provided value
 // and Locker.
-func NewSynchronizedWithLock[T any, Lock Locker](data T, lock Lock) *Synchronized[T, Lock] {
-	return &Synchronized[T, Lock]{
-		mutex: lock,
-		data:  data,
-	}
+func NewSynchronizedWithLock[T any](data T, lock Locker) *Synchronized[T] {
+	return &Synchronized[T]{mutex: lock, data: data}
 }
 
 // Modify acquires an exclusive lock on the object, then provides access to read or write the stored
 // value. The passed in function takes a pointer to the data, which if dereferenced, can be used to
 // assign a new value to the stored data.
-func (s *Synchronized[T, Lock]) Modify(function func(data *T)) {
+func (s *Synchronized[T]) Modify(function func(data *T)) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -59,31 +56,28 @@ func (s *Synchronized[T, Lock]) Modify(function func(data *T)) {
 }
 
 // RWSynchronized provides a simple abstraction for mutex- based conncurrency.
-type RWSynchronized[T any, Lock RWLocker] struct {
-	mutex Lock
+type RWSynchronized[T any] struct {
+	mutex RWLocker
 	data  T
 }
 
 // NewRWSynchronized creates a new Synchronized and initializes it with a user-provided value and a
 // *sync.Mutex. To specify a custom Locker use NewRWSynchronizedWithLock.
-func NewRWSynchronized[T any](data T) *RWSynchronized[T, *sync.RWMutex] {
+func NewRWSynchronized[T any](data T) *RWSynchronized[T] {
 	lock := &sync.RWMutex{}
-	return NewRWSynchronizedWithLock[T, *sync.RWMutex](data, lock)
+	return NewRWSynchronizedWithLock[T](data, lock)
 }
 
 // NewRWSynchronizedWithLock creates a new Synchronized and initializes it with a user-provided value
 // and RWLocker.
-func NewRWSynchronizedWithLock[T any, Lock RWLocker](data T, lock Lock) *RWSynchronized[T, Lock] {
-	return &RWSynchronized[T, Lock]{
-		mutex: lock,
-		data:  data,
-	}
+func NewRWSynchronizedWithLock[T any](data T, lock RWLocker) *RWSynchronized[T] {
+	return &RWSynchronized[T]{mutex: lock, data: data}
 }
 
 // Modify acquires an exclusive lock on the object, then provides access to read or write the stored
 // value. The passed in function takes a pointer to the data, which if dereferenced, can be used to
 // assign a new value to the stored data.
-func (s *RWSynchronized[T, Lock]) Modify(function func(data *T)) {
+func (s *RWSynchronized[T]) Modify(function func(data *T)) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -96,7 +90,7 @@ func (s *RWSynchronized[T, Lock]) Modify(function func(data *T)) {
 	function(&data)
 }
 
-func (s *RWSynchronized[T, Lock]) Read(function func(data T)) {
+func (s *RWSynchronized[T]) Read(function func(data T)) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
