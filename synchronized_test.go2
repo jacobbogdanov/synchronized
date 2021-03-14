@@ -1,83 +1,46 @@
+// TODO: make this an external test once I can figure out how to import other packages using go2go.
 package synchronized
 
 import (
+	"sync"
 	"testing"
 )
 
-func TestSyncRead(t *testing.T) {
-	s := NewSynchronized[int](5)
+const (
+	initString = "hello"
+	initInt    = 42
+)
 
-	modifyFunc, checkCalled := makeCheckFunc[int](t, 5)
-	s.Modify(modifyFunc)
+func TestSynchronizedRead(t *testing.T) {
+	t.Parallel()
 
-	checkCalled()
+	s := NewSynchronized[int](initInt)
+
+	if value := s.Value(); value != initInt {
+		t.Errorf("expected value == %v. got: %v", initInt, value)
+	}
 }
 
-func TestSyncWrite(t *testing.T) {
-	s := NewSynchronized[string]("hello")
+func TestSynchronizedSet(t *testing.T) {
+	t.Parallel()
 
-	s.Modify(func(value *string) {
-		*value = "world"
-	})
+	s := NewSynchronized[string](initString)
+
+	s.Set("world")
 
 	modifyFunc, checkCalled := makeCheckFunc[string](t, "world")
-	s.Modify(modifyFunc)
+	s.WithLock(modifyFunc)
 	checkCalled()
 }
 
-func TestRWSyncRead(t *testing.T) {
-	s := NewRWSynchronized[int](5)
+func TestSynchronizedDisallowTakingReferencesInWithLock(t *testing.T) {
+	t.Parallel()
 
-	called := false
-	s.Read(func(value int) {
-		if value != 5 {
-			t.Errorf("expected value == 5. got: %d", value)
-		}
-
-		called = true
-	})
-
-	if !called {
-		t.Error("function never called")
-	}
-}
-
-func TestDisallowTakingReferencesInRead(t *testing.T) {
-	const startValue = 5
-	s := NewRWSynchronized[int](startValue)
-
-	var bad *int = nil
-
-	s.Read(func(value int) {
-		bad = &value
-	})
-
-	if bad == nil {
-		t.Fatal("bad pointer never set")
-	}
-
-	*bad = 42
-
-	called := false
-	s.Read(func(value int) {
-		if value != startValue {
-			t.Fatalf("expected value == %v. got: %v", startValue, value)
-		}
-		called = true
-	})
-
-	if !called {
-		t.Error("function never called")
-	}
-}
-
-func TestDisallowTakingReferencesInWrite(t *testing.T) {
-	const startValue = "hello"
-	s := NewRWSynchronized[string](startValue)
+	s := NewSynchronized[string](initString)
 
 	var bad *string = nil
 
-	s.Modify(func(value *string) {
+	s.WithLock(func(value *string) {
 		bad = value
 	})
 
@@ -87,18 +50,111 @@ func TestDisallowTakingReferencesInWrite(t *testing.T) {
 
 	*bad = "world"
 
-	called := false
-	s.Read(func(value string) {
-		if value != startValue {
-			t.Fatalf("expected value == %v. got: %v", startValue, value)
-		}
-		called = true
-	})
-
-	if !called {
-		t.Error("function never called")
+	if value := s.Value(); value != initString {
+		t.Fatalf("expected value == %v. got: %v", initString, value)
 	}
 }
+
+func TestSynchronizedCustomLocker(t *testing.T) {
+	t.Parallel()
+
+	mu := &CustomRWMutex{}
+	s := NewSynchronizedWithLock[int](initInt, mu)
+
+	mu.checkCount(t, Stats{unlock: 0, lock: 0})
+
+	_ = s.Value()
+	mu.checkCount(t, Stats{unlock: 1, lock: 1})
+
+	mu.resetCount()
+	s.WithLock(func(*int) {
+		mu.checkCount(t, Stats{unlock: 0, lock: 1})
+	})
+
+	mu.checkCount(t, Stats{unlock: 1, lock: 1})
+}
+
+func TestSynchronizedPanicInWithLock(t *testing.T) {
+	t.Parallel()
+
+	mu := &CustomRWMutex{}
+	s := NewSynchronizedWithLock[string](initString, mu)
+
+	didPanic := false
+	func() {
+		defer func() {
+			didPanic = true
+			recover()
+		}()
+
+		mu.checkCount(t, Stats{unlock: 0, lock: 0})
+		s.WithLock(func(value *string) {
+			mu.checkCount(t, Stats{unlock: 0, lock: 1})
+			*value = "world"
+			panic("ahh!")
+		})
+
+		t.Fatal("shouldn't get to the end of this function.")
+	}()
+
+	if !didPanic {
+		t.Fatal("expected panic/recover that never happened")
+	}
+
+	mu.checkCount(t, Stats{unlock: 1, lock: 1})
+
+	if value := s.Value(); value != "world" {
+		t.Errorf("expected value to be updated before panic, expected value == 'world'. got %v", value)
+	}
+}
+
+type Stats struct {
+	lock, unlock, rlock, runlock int
+}
+
+type CustomRWMutex struct {
+	actual sync.RWMutex
+	stats  Stats
+}
+
+func (cm *CustomRWMutex) Lock() {
+	cm.stats.lock++
+	cm.actual.Lock()
+}
+
+func (cm *CustomRWMutex) Unlock() {
+	cm.stats.unlock++
+	cm.actual.Unlock()
+}
+
+func (cm *CustomRWMutex) RLock() {
+	cm.stats.rlock++
+	cm.actual.RLock()
+}
+
+func (cm *CustomRWMutex) RUnlock() {
+	cm.stats.runlock++
+	cm.actual.RUnlock()
+}
+
+func (cm *CustomRWMutex) checkCount(t *testing.T, stats Stats) {
+	t.Helper()
+
+	if stats.lock != cm.stats.lock {
+		t.Fatalf("expected lock count to be %d. got: %d", stats.lock, cm.stats.lock)
+	}
+	if stats.unlock != cm.stats.unlock {
+		t.Fatalf("expected unlock count to be %d. got: %d", stats.unlock, cm.stats.unlock)
+	}
+	if stats.rlock != cm.stats.rlock {
+		t.Fatalf("expected rlock count to be %d. got: %d", stats.rlock, cm.stats.rlock)
+	}
+	if stats.runlock != cm.stats.runlock {
+		t.Fatalf("expected runlock count to be %d. got: %d", stats.runlock, cm.stats.runlock)
+	}
+}
+
+func (cm *CustomRWMutex) resetCount() { cm.stats = Stats{} }
 
 func makeCheckFunc[Value comparable](t *testing.T, expected Value) (func(*Value), func()) {
 	t.Helper()

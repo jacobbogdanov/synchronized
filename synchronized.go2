@@ -39,10 +39,10 @@ func NewSynchronizedWithLock[T any](data T, lock Locker) *Synchronized[T] {
 	return &Synchronized[T]{mutex: lock, data: data}
 }
 
-// Modify acquires an exclusive lock on the object, then provides access to read or write the stored
+// WithLock acquires an exclusive lock on the object, then provides access to read or write the stored
 // value. The passed in function takes a pointer to the data, which if dereferenced, can be used to
 // assign a new value to the stored data.
-func (s *Synchronized[T]) Modify(function func(data *T)) {
+func (s *Synchronized[T]) WithLock(function func(data *T)) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -55,29 +55,46 @@ func (s *Synchronized[T]) Modify(function func(data *T)) {
 	function(&data)
 }
 
-// RWSynchronized provides a simple abstraction for mutex- based conncurrency.
+// Set acquires an exclusive lock, the replaces the stored data.
+func (s *Synchronized[T]) Set(value T) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	s.data = value
+}
+
+// Value acquires a exclusive lock, then returns a copy of the stored data.
+func (s *Synchronized[T]) Value() T {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	return s.data
+}
+
+// RWSynchronized provides a simple abstraction for mutex- based conncurrency, with differentiation
+// for read and write.
 type RWSynchronized[T any] struct {
 	mutex RWLocker
 	data  T
 }
 
-// NewRWSynchronized creates a new Synchronized and initializes it with a user-provided value and a
-// *sync.Mutex. To specify a custom Locker use NewRWSynchronizedWithLock.
+// NewRWSynchronized creates a new RWSynchronized and initializes it with a user-provided value and
+// a *sync.RWMutex. To specify a custom RWLocker use NewRWSynchronizedWithLock.
 func NewRWSynchronized[T any](data T) *RWSynchronized[T] {
 	lock := &sync.RWMutex{}
 	return NewRWSynchronizedWithLock[T](data, lock)
 }
 
-// NewRWSynchronizedWithLock creates a new Synchronized and initializes it with a user-provided value
-// and RWLocker.
+// NewRWSynchronizedWithLock creates a new RWSynchronized and initializes it with a user-provided
+// value and RWLocker.
 func NewRWSynchronizedWithLock[T any](data T, lock RWLocker) *RWSynchronized[T] {
 	return &RWSynchronized[T]{mutex: lock, data: data}
 }
 
-// Modify acquires an exclusive lock on the object, then provides access to read or write the stored
+// WithLock acquires an exclusive lock on the object, then provides access to read or write the stored
 // value. The passed in function takes a pointer to the data, which if dereferenced, can be used to
 // assign a new value to the stored data.
-func (s *RWSynchronized[T]) Modify(function func(data *T)) {
+func (s *RWSynchronized[T]) WithLock(function func(data *T)) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -90,15 +107,18 @@ func (s *RWSynchronized[T]) Modify(function func(data *T)) {
 	function(&data)
 }
 
-func (s *RWSynchronized[T]) Read(function func(data T)) {
+// Set acquires an exclusive lock, then replaces the stored data.
+func (s *RWSynchronized[T]) Set(value T) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	s.data = value
+}
+
+// Value acquires a read lock, then returns a copy of the stored data.
+func (s *RWSynchronized[T]) Value() T {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	// Rather than giving the function a reference to the actual storage, copy the data out and then
-	// back in once the function is done. This prevents callers from storing an unguarded pointer
-	// to the actual data.
-	data := s.data
-	defer func() { s.data = data }()
-
-	function(data)
+	return s.data
 }

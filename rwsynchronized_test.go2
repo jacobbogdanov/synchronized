@@ -1,0 +1,96 @@
+// TODO: make this an external test once I can figure out how to import other packages using go2go.
+package synchronized
+
+import (
+	"testing"
+)
+
+func TestRWSynchronizedRead(t *testing.T) {
+	t.Parallel()
+
+	s := NewRWSynchronized[int](initInt)
+
+	if value := s.Value(); value != initInt {
+		t.Errorf("expected value == %v. got: %v", initInt, value)
+	}
+}
+
+func TestRWSynchronizedSet(t *testing.T) {
+	t.Parallel()
+
+	s := NewRWSynchronized[string](initString)
+
+	s.Set("world")
+
+	modifyFunc, checkCalled := makeCheckFunc[string](t, "world")
+	s.WithLock(modifyFunc)
+	checkCalled()
+}
+
+func TestRWSynchronizedDisallowTakingReferencesInWithLock(t *testing.T) {
+	t.Parallel()
+
+	s := NewRWSynchronized[string](initString)
+
+	var bad *string = nil
+
+	s.WithLock(func(value *string) {
+		bad = value
+	})
+
+	if bad == nil {
+		t.Fatal("bad pointer never set")
+	}
+
+	*bad = "world"
+
+	if value := s.Value(); value != initString {
+		t.Fatalf("expected value == %v. got: %v", initString, value)
+	}
+}
+
+func TestRWSynchronizedCustomLocker(t *testing.T) {
+	t.Parallel()
+
+	mu := &CustomRWMutex{}
+	s := NewRWSynchronizedWithLock[int](initInt, mu)
+
+	mu.checkCount(t, Stats{unlock: 0, lock: 0})
+
+	_ = s.Value()
+	mu.checkCount(t, Stats{runlock: 1, rlock: 1})
+
+	mu.resetCount()
+	s.WithLock(func(*int) {
+		mu.checkCount(t, Stats{unlock: 0, lock: 1})
+	})
+
+	mu.checkCount(t, Stats{unlock: 1, lock: 1})
+}
+
+func TestRWSynchronizedPanicInWithLock(t *testing.T) {
+	t.Parallel()
+
+	s := NewRWSynchronized[string](initString)
+
+	didPanic := false
+	func() {
+		defer func() {
+			didPanic = true
+			recover()
+		}()
+
+		s.WithLock(func(value *string) {
+			*value = "world"
+			panic("ahh!")
+		})
+	}()
+
+	if !didPanic {
+		t.Fatal("expected panic/recover that never happened")
+	}
+
+	if value := s.Value(); value != "world" {
+		t.Errorf("expected value to be updated before panic, expected value == 'world'. got %v", value)
+	}
+}
