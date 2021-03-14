@@ -107,6 +107,20 @@ func (s *RWSynchronized[T]) WithLock(function func(data *T)) {
 	function(&data)
 }
 
+// WithRLock acquires a read lock on the object, then provides access to read the stored value.
+func (s *RWSynchronized[T]) WithRLock(function func(data T)) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	// Rather than giving the function a pointer to the actual storage, copy the data out and then
+	// back in once the function is done. This prevents callers from storing an unguarded pointer
+	// to the actual data.
+	data := s.data
+	defer func() { s.data = data }()
+
+	function(&data)
+}
+
 // Set acquires an exclusive lock, then replaces the stored data.
 func (s *RWSynchronized[T]) Set(value T) {
 	s.mutex.Lock()

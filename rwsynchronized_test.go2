@@ -2,6 +2,7 @@
 package synchronized
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -92,5 +93,33 @@ func TestRWSynchronizedPanicInWithLock(t *testing.T) {
 
 	if value := s.Value(); value != "world" {
 		t.Errorf("expected value to be updated before panic, expected value == 'world'. got %v", value)
+	}
+}
+
+func ExampleIntSlice() {
+	// create a synchronized int slice.
+	locked := NewRWSynchronized[[]int]([]int{1, 2, 3, 4})
+
+	// Double each value.
+	locked.WithLock(func(values *[]int) {
+		for i, value := range *values {
+			(*values)[i] = value * 2
+		}
+	})
+
+	// read the values.
+	locked.WithRLock(func(values []int) {
+		for i, value := range values {
+			fmt.Printf("%d=%d\n", i, value)
+		}
+	})
+
+	// Or just replace the entire thing.
+	locked.Set([]int{4, 3, 2, 1})
+
+	// copy the data out, then read the values.
+	values := locked.Value()
+	for i, value := range values {
+		fmt.Printf("%d=%d\n", i, value)
 	}
 }
