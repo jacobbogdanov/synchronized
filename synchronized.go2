@@ -1,0 +1,114 @@
+// Package synchronized introduces a simple abstraction for mutex- based concurrency. It replaces
+// convoluted, unwieldy, and just plain wrong code with simple constructs that are easy to get right
+// and difficult to get wrong.
+//
+// This package is inspired by folly::Synchronized, a C++ template to accomplish the same thing. See
+// https://github.com/facebook/folly/blob/master/folly/docs/Synchronized.md for much better docs
+// than what I can provide.
+package synchronized
+
+import (
+	"sync"
+)
+
+// Locker is syntactic sugar for sync.Locker, which is an interface with two methods, Lock() and
+// Unlock().
+type Locker = sync.Locker
+
+// RWLocker is an interface for a reader/writer mutual exclusion lock. It provides the same
+// interface as Locker, but adds two new methods, RLock() and RUnlock() for acquiring read-only
+// access to the lock.
+type RWLocker interface {
+	Locker
+	RLock()
+	RUnlock()
+}
+
+// Synchronized provides a simple abstraction for mutex- based conncurrency.
+type Synchronized[T any, Lock Locker] struct {
+	mutex Lock
+	data  T
+}
+
+// NewSynchronized creates a new Synchronized and initializes it with a user-provided value and a
+// *sync.Mutex. To specify a custom Locker use NewSynchronizedWithLock.
+func NewSynchronized[T any](data T) *Synchronized[T, *sync.Mutex] {
+	lock := &sync.Mutex{}
+	return NewSynchronizedWithLock[T, *sync.Mutex](data, lock)
+}
+
+// NewSynchronizedWithLock creates a new Synchronized and initializes it with a user-provided value
+// and Locker.
+func NewSynchronizedWithLock[T any, Lock Locker](data T, lock Lock) *Synchronized[T, Lock] {
+	return &Synchronized[T, Lock]{
+		mutex: lock,
+		data:  data,
+	}
+}
+
+// Modify acquires an exclusive lock on the object, then provides access to read or write the stored
+// value. The passed in function takes a pointer to the data, which if dereferenced, can be used to
+// assign a new value to the stored data.
+func (s *Synchronized[T, Lock]) Modify(function func(data *T)) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	// Rather than giving the function a pointer to the actual storage, copy the data out and then
+	// back in once the function is done. This prevents callers from storing an unguarded pointer
+	// to the actual data.
+	data := s.data
+	defer func() { s.data = data }()
+
+	function(&data)
+}
+
+// RWSynchronized provides a simple abstraction for mutex- based conncurrency.
+type RWSynchronized[T any, Lock RWLocker] struct {
+	mutex Lock
+	data  T
+}
+
+// NewRWSynchronized creates a new Synchronized and initializes it with a user-provided value and a
+// *sync.Mutex. To specify a custom Locker use NewRWSynchronizedWithLock.
+func NewRWSynchronized[T any](data T) *RWSynchronized[T, *sync.RWMutex] {
+	lock := &sync.RWMutex{}
+	return NewRWSynchronizedWithLock[T, *sync.RWMutex](data, lock)
+}
+
+// NewRWSynchronizedWithLock creates a new Synchronized and initializes it with a user-provided value
+// and RWLocker.
+func NewRWSynchronizedWithLock[T any, Lock RWLocker](data T, lock Lock) *RWSynchronized[T, Lock] {
+	return &RWSynchronized[T, Lock]{
+		mutex: lock,
+		data:  data,
+	}
+}
+
+// Modify acquires an exclusive lock on the object, then provides access to read or write the stored
+// value. The passed in function takes a pointer to the data, which if dereferenced, can be used to
+// assign a new value to the stored data.
+func (s *RWSynchronized[T, Lock]) Modify(function func(data *T)) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	// Rather than giving the function a pointer to the actual storage, copy the data out and then
+	// back in once the function is done. This prevents callers from storing an unguarded pointer
+	// to the actual data.
+	data := s.data
+	defer func() { s.data = data }()
+
+	function(&data)
+}
+
+func (s *RWSynchronized[T, Lock]) Read(function func(data T)) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	// Rather than giving the function a reference to the actual storage, copy the data out and then
+	// back in once the function is done. This prevents callers from storing an unguarded pointer
+	// to the actual data.
+	data := s.data
+	defer func() { s.data = data }()
+
+	function(data)
+}

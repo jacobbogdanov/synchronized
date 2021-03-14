@@ -1,0 +1,124 @@
+package synchronized
+
+import (
+	"testing"
+)
+
+func TestSyncRead(t *testing.T) {
+	s := NewSynchronized[int](5)
+
+	modifyFunc, checkCalled := makeCheckFunc[int](t, 5)
+	s.Modify(modifyFunc)
+
+	checkCalled()
+}
+
+func TestSyncWrite(t *testing.T) {
+	s := NewSynchronized[string]("hello")
+
+	s.Modify(func(value *string) {
+		*value = "world"
+	})
+
+	modifyFunc, checkCalled := makeCheckFunc[string](t, "world")
+	s.Modify(modifyFunc)
+	checkCalled()
+}
+
+func TestRWSyncRead(t *testing.T) {
+	s := NewRWSynchronized[int](5)
+
+	called := false
+	s.Read(func(value int) {
+		if value != 5 {
+			t.Errorf("expected value == 5. got: %d", value)
+		}
+
+		called = true
+	})
+
+	if !called {
+		t.Error("function never called")
+	}
+}
+
+func TestDisallowTakingReferencesInRead(t *testing.T) {
+	const startValue = 5
+	s := NewRWSynchronized[int](startValue)
+
+	var bad *int = nil
+
+	s.Read(func(value int) {
+		bad = &value
+	})
+
+	if bad == nil {
+		t.Fatal("bad pointer never set")
+	}
+
+	*bad = 42
+
+	called := false
+	s.Read(func(value int) {
+		if value != startValue {
+			t.Fatalf("expected value == %v. got: %v", startValue, value)
+		}
+		called = true
+	})
+
+	if !called {
+		t.Error("function never called")
+	}
+}
+
+func TestDisallowTakingReferencesInWrite(t *testing.T) {
+	const startValue = "hello"
+	s := NewRWSynchronized[string](startValue)
+
+	var bad *string = nil
+
+	s.Modify(func(value *string) {
+		bad = value
+	})
+
+	if bad == nil {
+		t.Fatal("bad pointer never set")
+	}
+
+	*bad = "world"
+
+	called := false
+	s.Read(func(value string) {
+		if value != startValue {
+			t.Fatalf("expected value == %v. got: %v", startValue, value)
+		}
+		called = true
+	})
+
+	if !called {
+		t.Error("function never called")
+	}
+}
+
+func makeCheckFunc[Value comparable](t *testing.T, expected Value) (func(*Value), func()) {
+	t.Helper()
+
+	called := false
+	checkCalled := func() {
+		if !called {
+			t.Errorf("function never called")
+		}
+	}
+
+	modifyFunc := func(value *Value) {
+		if value == nil {
+			t.Fatal("value is nil")
+		}
+		if *value != expected {
+			t.Errorf("expected value == %v. got: %v", expected, *value)
+		}
+
+		called = true
+	}
+	return modifyFunc, checkCalled
+}
