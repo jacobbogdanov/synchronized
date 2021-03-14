@@ -1,10 +1,6 @@
 // Package synchronized introduces a simple abstraction for mutex- based concurrency. It replaces
 // convoluted, unwieldy, and just plain wrong code with simple constructs that are easy to get right
 // and difficult to get wrong.
-//
-// This package is inspired by folly::Synchronized, a C++ template to accomplish the same thing. See
-// https://github.com/facebook/folly/blob/master/folly/docs/Synchronized.md for much better docs
-// than what I can provide.
 package synchronized
 
 import (
